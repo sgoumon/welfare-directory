@@ -497,7 +497,7 @@ def aggregate(cfg):
     for aid, a in sorted(authors.items(), key=lambda kv: -kv[1]["w"]):
         inst_sorted = sorted(a["i"].items(), key=lambda kv: -kv[1])  # most recent first
         out_res.append([a["n"], a["o"], a["w"], a["y0"] if a["y0"] != 9999 else None,
-                        a["y1"] or None, [inst_index[i] for i, _ in inst_sorted if i in inst_index],
+                        a["y1"] or None, [[inst_index[i], yr] for i, yr in inst_sorted if i in inst_index],
                         species_bits(a["sp"], a["w"]), aid])
 
     result = {
@@ -507,7 +507,7 @@ def aggregate(cfg):
         "species": species_names,
         "countries": sorted(c for c in countries if c),
         "inst_fields": ["name", "city", "country", "ror", "web", "papers", "researchers", "species_bits", "last_year", "openalex", "lat", "lon"],
-        "res_fields": ["name", "orcid", "papers", "first_year", "last_year", "institutions", "species_bits", "openalex"],
+        "res_fields": ["name", "orcid", "papers", "first_year", "last_year", "institutions [index, last year there]", "species_bits", "openalex"],
         "inst": out_inst,
         "res": out_res,
     }
