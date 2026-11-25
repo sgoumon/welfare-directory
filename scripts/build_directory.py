@@ -134,7 +134,18 @@ class OpenAlex:
                 return data
             except urllib.error.HTTPError as e:
                 if e.code == 429:
-                    raise BudgetExhausted("OpenAlex returned 429 (rate limit / daily budget reached)")
+                    # Usually a short-term "slow down"; wait and retry. Only after
+                    # several refusals do we treat it as the daily budget being used up.
+                    if attempt < 5:
+                        try:
+                            wait = float(e.headers.get("Retry-After") or 0)
+                        except ValueError:
+                            wait = 0
+                        wait = max(wait, 15 * 2 ** attempt)  # 15, 30, 60, 120, 240 s
+                        print(f"  OpenAlex asked to slow down (429); waiting {wait:.0f} s", flush=True)
+                        time.sleep(wait)
+                        continue
+                    raise BudgetExhausted("OpenAlex kept returning 429 (rate limit or daily budget reached)")
                 if e.code in (500, 502, 503, 504) and attempt < 5:
                     time.sleep(delay)
                     delay *= 2
@@ -302,6 +313,7 @@ def fetch(cfg, api, state, max_pages=None):
                     print(f"  budget left today: ${left:.3f}")
                     if left < 0.01:
                         raise BudgetExhausted("Daily budget nearly used up")
+            time.sleep(0.2)  # be gentle with the API
             data = api.get("/works", {"filter": q["filter"], "per-page": PER_PAGE,
                                       "cursor": qs["cursor"], "select": WORK_FIELDS})
             meta = data.get("meta") or {}
