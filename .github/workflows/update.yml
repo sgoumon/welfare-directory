@@ -28,6 +28,7 @@ jobs:
       - name: Fetch from OpenAlex and build directory
         env:
           OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+          PYTHONUNBUFFERED: "1"
         run: python scripts/build_directory.py
 
       - name: Save progress and results
