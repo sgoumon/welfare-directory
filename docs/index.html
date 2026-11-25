@@ -34,6 +34,11 @@
   .people { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
   .person { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 0.9rem; }
   .person[hidden] { display: none; }
+  .person.former, .person.former a { color: var(--muted); }
+  .subhead { font-size: 0.8rem; color: var(--muted); margin: 8px 0 2px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; color: var(--ink); margin: 2px 0 4px; cursor: pointer; }
+  .toggle input { width: auto; }
+  .until { color: var(--muted); }
   .person span:last-child { color: var(--muted); white-space: nowrap; }
   .more { display: block; margin: 14px auto 0; padding: 9px 18px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; cursor: pointer; font: inherit; }
   .note { margin-top: 26px; padding: 12px 14px; background: var(--panel); border-radius: 10px; font-size: 0.84rem; color: var(--muted); }
@@ -63,6 +68,8 @@
     </select>
   </div>
 
+  <label class="toggle"><input type="checkbox" id="latest"> Latest affiliation only
+    <span class="until">(list each researcher only at the institution of their most recent paper)</span></label>
   <div class="count" id="count"></div>
   <div id="results"><div class="status">Loading directory…</div></div>
 
@@ -72,6 +79,8 @@
       if it appears in a core welfare journal, or if its title or abstract matches welfare-related terms.
       Institutions and researchers are taken from the authors' affiliations on those papers.
       "Papers" = number of matching papers since <span id="fromYear">2010</span>.</p>
+    <p>A researcher's <em>latest affiliation</em> is the institution on their most recent paper in the directory, so it may lag behind a recent move.
+      Researchers whose most recent paper is from elsewhere are listed under an institution as <em>earlier members</em>.</p>
     <p>Because this is automated, some entries will be incomplete or wrong (e.g. outdated affiliations or merged names).</p>
     <p><strong>Corrections or removal:</strong> email <a id="contact" href="mailto:CONTACT_EMAIL">CONTACT_EMAIL</a>.</p>
   </div>
@@ -79,7 +88,7 @@
 
 <script>
 // ---- settings --------------------------------------------------------------
-const CONTACT_EMAIL = "sebastien.goumon@gmail.com";   // <- put your email address here
+const CONTACT_EMAIL = "CONTACT_EMAIL";   // <- put your email address here
 const DATA_URL = "directory.json";
 const PAGE = 30;
 
@@ -103,12 +112,24 @@ function speciesList(bits) {
 
 function prepare() {
   // institutions: [name, city, country, ror, web, papers, researchers, sp, last, oa, lat, lon]
-  D.inst.forEach(r => { r.key = norm([r[0], r[1], regionName(r[2]), r[2]].join(" ")); r.people = []; });
-  // researchers: [name, orcid, papers, y0, y1, [inst idx], sp, oa]
+  D.inst.forEach(r => { r.key = norm([r[0], r[1], regionName(r[2]), r[2]].join(" ")); r.people = []; r.nCur = 0; });
+  // researchers: [name, orcid, papers, y0, y1, [[inst idx, last year there], ...], sp, oa]
+  const nm = i => D.inst[i] ? D.inst[i][0] : "";
+  const ccOf = i => D.inst[i] && D.inst[i][2];
   D.res.forEach((r, k) => {
-    r.key = norm([r[0], ...r[5].map(i => D.inst[i] ? D.inst[i][0] : "")].join(" "));
-    r.cc = new Set(r[5].map(i => D.inst[i] && D.inst[i][2]));
-    r[5].forEach(i => D.inst[i] && D.inst[i].people.push(k));
+    const aff = r[5];
+    const top = aff.length ? Math.max(...aff.map(a => a[1])) : 0;
+    r.cur = aff.filter(a => a[1] === top).map(a => a[0]);   // latest affiliation(s)
+    r.keyAll = norm([r[0], ...aff.map(a => nm(a[0]))].join(" "));
+    r.keyCur = norm([r[0], ...r.cur.map(nm)].join(" "));
+    r.ccAll = new Set(aff.map(a => ccOf(a[0])));
+    r.ccCur = new Set(r.cur.map(ccOf));
+    aff.forEach(([i, y]) => {
+      if (!D.inst[i]) return;
+      const cur = r.cur.includes(i);
+      D.inst[i].people.push([k, y, cur]);
+      if (cur) D.inst[i].nCur++;
+    });
   });
   const cs = D.countries.map(c => [c, regionName(c)]).sort((a, b) => a[1].localeCompare(b[1]));
   $("country").insertAdjacentHTML("beforeend", cs.map(([c, n]) => `<option value="${esc(c)}">${esc(n)}</option>`).join(""));
@@ -118,6 +139,9 @@ function prepare() {
   $("sub").textContent = `Find institutions and researchers working on animal welfare science. Built from ${D.papers.toLocaleString("en")} papers (${yrs}), updated ${D.generated}.`;
 }
 
+const latestOnly = () => $("latest").checked;
+const nPeople = r => latestOnly() ? r.nCur : r[6];
+
 function filtered() {
   const terms = norm($("q").value).split(/\s+/).filter(Boolean);
   const cc = $("country").value, sp = $("species").value === "" ? null : 1 << Number($("species").value);
@@ -125,9 +149,10 @@ function filtered() {
   const out = [];
   for (let k = 0; k < rows.length; k++) {
     const r = rows[k];
-    if (terms.length && !terms.every(t => r.key.includes(t))) continue;
+    const key = view === "inst" ? r.key : (latestOnly() ? r.keyCur : r.keyAll);
+    if (terms.length && !terms.every(t => key.includes(t))) continue;
     if (sp !== null && !((view === "inst" ? r[7] : r[6]) & sp)) continue;
-    if (cc && (view === "inst" ? r[2] !== cc : !r.cc.has(cc))) continue;
+    if (cc && (view === "inst" ? r[2] !== cc : !(latestOnly() ? r.ccCur : r.ccAll).has(cc))) continue;
     out.push(k);
   }
   const sort = $("sort").value;
@@ -159,7 +184,7 @@ function instCard(k) {
     r[4] ? `<a href="${esc(r[4])}" target="_blank" rel="noopener">Website</a>` : "",
     r[3] ? `<a href="https://ror.org/${esc(r[3])}" target="_blank" rel="noopener">ROR</a>` : "",
     `<a href="https://openalex.org/${esc(r[9])}" target="_blank" rel="noopener">OpenAlex</a>`,
-    `<button class="linkbtn" data-people="${k}">Show researchers (${r[6]})</button>`,
+    `<button class="linkbtn" data-people="${k}">Show researchers (${nPeople(r)})</button>`,
   ].filter(Boolean).join("");
   return `<div class="card" id="i${k}">
     <h3><span>${highlight(r[0])}</span><span class="num">${r[5]} paper${r[5] === 1 ? "" : "s"}</span></h3>
@@ -169,10 +194,13 @@ function instCard(k) {
 
 function resCard(k) {
   const r = D.res[k];
-  const insts = r[5].slice(0, 3).map(i => {
+  const aff = latestOnly() ? r[5].filter(a => r.cur.includes(a[0])) : r[5];
+  const insts = aff.slice(0, 3).map(([i, y]) => {
     const x = D.inst[i];
-    return x ? `<button class="linkbtn" data-goto="${i}">${esc(x[0])}</button>${x[2] ? " (" + esc(regionName(x[2])) + ")" : ""}` : "";
-  }).join("; ") + (r[5].length > 3 ? ` +${r[5].length - 3} more` : "");
+    if (!x) return "";
+    const where = [x[2] ? esc(regionName(x[2])) : "", r.cur.includes(i) ? "" : `<span class="until">until ${y}</span>`].filter(Boolean).join(", ");
+    return `<button class="linkbtn" data-goto="${i}">${esc(x[0])}</button>${where ? " (" + where + ")" : ""}`;
+  }).filter(Boolean).join("; ") + (aff.length > 3 ? ` +${aff.length - 3} more` : "");
   const links = [
     r[1] ? `<a href="https://orcid.org/${esc(r[1])}" target="_blank" rel="noopener">ORCID</a>` : "",
     `<a href="https://openalex.org/${esc(r[7])}" target="_blank" rel="noopener">OpenAlex profile</a>`,
@@ -197,15 +225,23 @@ function render() {
 function togglePeople(k, btn) {
   const card = $("i" + k);
   const open = card.querySelector(".people");
-  if (open) { open.remove(); btn.textContent = `Show researchers (${D.inst[k][6]})`; return; }
-  const ppl = D.inst[k].people.slice().sort((a, b) => D.res[b][2] - D.res[a][2]);
+  if (open) { open.remove(); btn.textContent = `Show researchers (${nPeople(D.inst[k])})`; return; }
   const LIMIT = 50;
-  const html = ppl.map((p, n) => {
+  const all = D.inst[k].people;
+  const current = all.filter(p => p[2]).sort((a, b) => D.res[b[0]][2] - D.res[a[0]][2]);
+  const earlier = latestOnly() ? [] : all.filter(p => !p[2]).sort((a, b) => b[1] - a[1] || D.res[b[0]][2] - D.res[a[0]][2]);
+  let n = 0;
+  const row = ([p, y, cur]) => {
     const r = D.res[p];
-    return `<div class="person"><span><a href="https://openalex.org/${esc(r[7])}" target="_blank" rel="noopener">${esc(r[0])}</a></span><span>${r[2]} paper${r[2] === 1 ? "" : "s"}${r[4] ? " · " + r[4] : ""}</span></div>`.replace('class="person"', n >= LIMIT ? 'class="person" hidden' : 'class="person"');
-  }).join("");
-  const all = ppl.length > LIMIT ? `<button class="linkbtn" onclick="this.parentNode.querySelectorAll('[hidden]').forEach(x=>x.hidden=false);this.remove()">Show all ${ppl.length}</button>` : "";
-  card.insertAdjacentHTML("beforeend", `<div class="people">${html}${all}</div>`);
+    const right = cur ? `${r[2]} paper${r[2] === 1 ? "" : "s"} · ${y}` : `last paper here ${y}`;
+    return `<div class="person${cur ? "" : " former"}"${n++ >= LIMIT ? " hidden" : ""}><span><a href="https://openalex.org/${esc(r[7])}" target="_blank" rel="noopener">${esc(r[0])}</a></span><span>${right}</span></div>`;
+  };
+  let html = current.map(row).join("");
+  if (earlier.length) html += `<div class="subhead">Earlier members (most recent paper from elsewhere)</div>` + earlier.map(row).join("");
+  if (!current.length && !earlier.length) html = `<div class="person"><span class="until">No researchers with this as their latest affiliation.</span></div>`;
+  const total = current.length + earlier.length;
+  const more = total > LIMIT ? `<button class="linkbtn" onclick="this.parentNode.querySelectorAll('[hidden]').forEach(x=>x.hidden=false);this.remove()">Show all ${total}</button>` : "";
+  card.insertAdjacentHTML("beforeend", `<div class="people">${html}${more}</div>`);
   btn.textContent = "Hide researchers";
 }
 
@@ -229,7 +265,7 @@ document.addEventListener("click", e => {
 
 let timer;
 $("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => { shown = PAGE; render(); }, 150); });
-["country", "species", "sort"].forEach(id => $(id).addEventListener("change", () => { shown = PAGE; render(); }));
+["country", "species", "sort", "latest"].forEach(id => $(id).addEventListener("change", () => { shown = PAGE; render(); }));
 
 fetch(DATA_URL).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
   .then(d => { D = d; prepare(); render(); })
