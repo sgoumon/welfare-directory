@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Animal Welfare Research Directory</title>
+<style>
+  :root {
+    --ink: #1f2a24; --muted: #5d6b63; --line: #dfe5e1; --bg: #ffffff; --panel: #f5f7f6;
+    --accent: #2f6b4f; --accent-soft: #e4efe9; --chip: #eef2f0;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink); background: var(--bg); }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 1.45rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); margin: 0 0 18px; font-size: 0.92rem; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+  .tab { border: 1px solid var(--line); background: var(--bg); padding: 7px 14px; border-radius: 999px; cursor: pointer; font: inherit; color: var(--ink); }
+  .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .controls { display: grid; grid-template-columns: 1fr 180px 180px 150px; gap: 8px; margin-bottom: 10px; }
+  @media (max-width: 720px) { .controls { grid-template-columns: 1fr 1fr; } .controls input { grid-column: 1 / -1; } }
+  input, select { font: inherit; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); width: 100%; }
+  input:focus, select:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  .count { color: var(--muted); font-size: 0.88rem; margin: 6px 0 10px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; background: var(--bg); }
+  .card h3 { font-size: 1rem; margin: 0; display: flex; justify-content: space-between; gap: 10px; }
+  .card h3 .num { color: var(--muted); font-weight: 400; font-size: 0.86rem; white-space: nowrap; }
+  .meta { color: var(--muted); font-size: 0.88rem; margin-top: 2px; }
+  .chips { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 1px 9px; font-size: 0.78rem; color: var(--ink); }
+  .links { margin-top: 6px; font-size: 0.85rem; display: flex; flex-wrap: wrap; gap: 12px; }
+  a { color: var(--accent); }
+  .linkbtn { background: none; border: none; padding: 0; color: var(--accent); cursor: pointer; font: inherit; text-decoration: underline; }
+  .people { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .person { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 0.9rem; }
+  .person[hidden] { display: none; }
+  .person span:last-child { color: var(--muted); white-space: nowrap; }
+  .more { display: block; margin: 14px auto 0; padding: 9px 18px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; cursor: pointer; font: inherit; }
+  .note { margin-top: 26px; padding: 12px 14px; background: var(--panel); border-radius: 10px; font-size: 0.84rem; color: var(--muted); }
+  .note p { margin: 0 0 6px; }
+  .status { padding: 30px 0; text-align: center; color: var(--muted); }
+  mark { background: #fff1b8; color: inherit; padding: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Animal Welfare Research Directory</h1>
+  <p class="sub" id="sub">Find institutions and researchers working on animal welfare science.</p>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-view="inst">Institutions</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="res">Researchers</button>
+  </div>
+
+  <div class="controls">
+    <input id="q" type="search" placeholder="Search by name, institution or city…" autocomplete="off" aria-label="Search">
+    <select id="country" aria-label="Country"><option value="">All countries</option></select>
+    <select id="species" aria-label="Species"><option value="">All species</option></select>
+    <select id="sort" aria-label="Sort">
+      <option value="papers">Most papers</option>
+      <option value="recent">Most recent</option>
+      <option value="name">A–Z</option>
+    </select>
+  </div>
+
+  <div class="count" id="count"></div>
+  <div id="results"><div class="status">Loading directory…</div></div>
+
+  <div class="note">
+    <p><strong>How this works.</strong> The directory is generated automatically from publication records in
+      <a href="https://openalex.org" target="_blank" rel="noopener">OpenAlex</a>. A paper counts as animal welfare research
+      if it appears in a core welfare journal, or if its title or abstract matches welfare-related terms.
+      Institutions and researchers are taken from the authors' affiliations on those papers.
+      "Papers" = number of matching papers since <span id="fromYear">2010</span>.</p>
+    <p>Because this is automated, some entries will be incomplete or wrong (e.g. outdated affiliations or merged names).</p>
+    <p><strong>Corrections or removal:</strong> email <a id="contact" href="mailto:CONTACT_EMAIL">CONTACT_EMAIL</a>.</p>
+  </div>
+</div>
+
+<script>
+// ---- settings --------------------------------------------------------------
+const CONTACT_EMAIL = "CONTACT_EMAIL";   // <- put your email address here
+const DATA_URL = "directory.json";
+const PAGE = 30;
+
+// ---- state -----------------------------------------------------------------
+let D = null, view = "inst", shown = PAGE, regionName = c => c;
+const $ = id => document.getElementById(id);
+const norm = s => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+try { const dn = new Intl.DisplayNames(["en"], { type: "region" }); regionName = c => { try { return dn.of(c) || c; } catch (e) { return c; } }; } catch (e) {}
+
+if (CONTACT_EMAIL !== "CONTACT" + "_EMAIL") {
+  $("contact").href = "mailto:" + CONTACT_EMAIL; $("contact").textContent = CONTACT_EMAIL;
+}
+
+function speciesList(bits) {
+  const out = [];
+  D.species.forEach((s, i) => { if (bits & (1 << i)) out.push(s); });
+  return out;
+}
+
+function prepare() {
+  // institutions: [name, city, country, ror, web, papers, researchers, sp, last, oa, lat, lon]
+  D.inst.forEach(r => { r.key = norm([r[0], r[1], regionName(r[2]), r[2]].join(" ")); r.people = []; });
+  // researchers: [name, orcid, papers, y0, y1, [inst idx], sp, oa]
+  D.res.forEach((r, k) => {
+    r.key = norm([r[0], ...r[5].map(i => D.inst[i] ? D.inst[i][0] : "")].join(" "));
+    r.cc = new Set(r[5].map(i => D.inst[i] && D.inst[i][2]));
+    r[5].forEach(i => D.inst[i] && D.inst[i].people.push(k));
+  });
+  const cs = D.countries.map(c => [c, regionName(c)]).sort((a, b) => a[1].localeCompare(b[1]));
+  $("country").insertAdjacentHTML("beforeend", cs.map(([c, n]) => `<option value="${esc(c)}">${esc(n)}</option>`).join(""));
+  $("species").insertAdjacentHTML("beforeend", D.species.map((s, i) => `<option value="${i}">${esc(s)}</option>`).join(""));
+  const yrs = D.years ? `${D.years[0]}–${D.years[1]}` : "";
+  $("fromYear").textContent = D.years ? D.years[0] : "";
+  $("sub").textContent = `Find institutions and researchers working on animal welfare science. Built from ${D.papers.toLocaleString("en")} papers (${yrs}), updated ${D.generated}.`;
+}
+
+function filtered() {
+  const terms = norm($("q").value).split(/\s+/).filter(Boolean);
+  const cc = $("country").value, sp = $("species").value === "" ? null : 1 << Number($("species").value);
+  const rows = view === "inst" ? D.inst : D.res;
+  const out = [];
+  for (let k = 0; k < rows.length; k++) {
+    const r = rows[k];
+    if (terms.length && !terms.every(t => r.key.includes(t))) continue;
+    if (sp !== null && !((view === "inst" ? r[7] : r[6]) & sp)) continue;
+    if (cc && (view === "inst" ? r[2] !== cc : !r.cc.has(cc))) continue;
+    out.push(k);
+  }
+  const sort = $("sort").value;
+  if (sort === "name") out.sort((a, b) => rows[a][0].localeCompare(rows[b][0]));
+  else if (sort === "recent") out.sort((a, b) => (view === "inst" ? rows[b][8] - rows[a][8] : rows[b][4] - rows[a][4]) || rows[b][view === "inst" ? 5 : 2] - rows[a][view === "inst" ? 5 : 2]);
+  // default order (most papers) is how the data file is already sorted
+  return out;
+}
+
+function highlight(text) {
+  const terms = norm($("q").value).split(/\s+/).filter(t => t.length > 1);
+  let html = esc(text);
+  if (!terms.length) return html;
+  // highlight only when the text has no accents (keeps positions simple)
+  if (norm(text) !== text.toLowerCase()) return html;
+  for (const t of terms) html = html.replace(new RegExp("(" + t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig"), "<mark>$1</mark>");
+  return html;
+}
+
+function chips(bits) {
+  const s = speciesList(bits);
+  return s.length ? `<div class="chips">${s.map(x => `<span class="chip">${esc(x)}</span>`).join("")}</div>` : "";
+}
+
+function instCard(k) {
+  const r = D.inst[k];
+  const place = [r[1], regionName(r[2])].filter(Boolean).join(", ");
+  const links = [
+    r[4] ? `<a href="${esc(r[4])}" target="_blank" rel="noopener">Website</a>` : "",
+    r[3] ? `<a href="https://ror.org/${esc(r[3])}" target="_blank" rel="noopener">ROR</a>` : "",
+    `<a href="https://openalex.org/${esc(r[9])}" target="_blank" rel="noopener">OpenAlex</a>`,
+    `<button class="linkbtn" data-people="${k}">Show researchers (${r[6]})</button>`,
+  ].filter(Boolean).join("");
+  return `<div class="card" id="i${k}">
+    <h3><span>${highlight(r[0])}</span><span class="num">${r[5]} paper${r[5] === 1 ? "" : "s"}</span></h3>
+    <div class="meta">${esc(place)}${r[8] ? ` · latest ${r[8]}` : ""}</div>
+    ${chips(r[7])}<div class="links">${links}</div></div>`;
+}
+
+function resCard(k) {
+  const r = D.res[k];
+  const insts = r[5].slice(0, 3).map(i => {
+    const x = D.inst[i];
+    return x ? `<button class="linkbtn" data-goto="${i}">${esc(x[0])}</button>${x[2] ? " (" + esc(regionName(x[2])) + ")" : ""}` : "";
+  }).join("; ") + (r[5].length > 3 ? ` +${r[5].length - 3} more` : "");
+  const links = [
+    r[1] ? `<a href="https://orcid.org/${esc(r[1])}" target="_blank" rel="noopener">ORCID</a>` : "",
+    `<a href="https://openalex.org/${esc(r[7])}" target="_blank" rel="noopener">OpenAlex profile</a>`,
+  ].filter(Boolean).join("");
+  const yrs = r[3] && r[4] ? (r[3] === r[4] ? r[3] : `${r[3]}–${r[4]}`) : "";
+  return `<div class="card">
+    <h3><span>${highlight(r[0])}</span><span class="num">${r[2]} paper${r[2] === 1 ? "" : "s"}${yrs ? " · " + yrs : ""}</span></h3>
+    <div class="meta">${insts || "No affiliation recorded"}</div>
+    ${chips(r[6])}<div class="links">${links}</div></div>`;
+}
+
+function render() {
+  const ids = filtered();
+  const label = view === "inst" ? "institution" : "researcher";
+  $("count").textContent = `${ids.length.toLocaleString("en")} ${label}${ids.length === 1 ? "" : "s"}`;
+  const cards = ids.slice(0, shown).map(view === "inst" ? instCard : resCard).join("");
+  $("results").innerHTML = (cards || `<div class="status">No matches. Try fewer words or another filter.</div>`) +
+    (ids.length > shown ? `<button class="more" id="more">Show more</button>` : "");
+  const m = $("more"); if (m) m.onclick = () => { shown += PAGE; render(); };
+}
+
+function togglePeople(k, btn) {
+  const card = $("i" + k);
+  const open = card.querySelector(".people");
+  if (open) { open.remove(); btn.textContent = `Show researchers (${D.inst[k][6]})`; return; }
+  const ppl = D.inst[k].people.slice().sort((a, b) => D.res[b][2] - D.res[a][2]);
+  const LIMIT = 50;
+  const html = ppl.map((p, n) => {
+    const r = D.res[p];
+    return `<div class="person"><span><a href="https://openalex.org/${esc(r[7])}" target="_blank" rel="noopener">${esc(r[0])}</a></span><span>${r[2]} paper${r[2] === 1 ? "" : "s"}${r[4] ? " · " + r[4] : ""}</span></div>`.replace('class="person"', n >= LIMIT ? 'class="person" hidden' : 'class="person"');
+  }).join("");
+  const all = ppl.length > LIMIT ? `<button class="linkbtn" onclick="this.parentNode.querySelectorAll('[hidden]').forEach(x=>x.hidden=false);this.remove()">Show all ${ppl.length}</button>` : "";
+  card.insertAdjacentHTML("beforeend", `<div class="people">${html}${all}</div>`);
+  btn.textContent = "Hide researchers";
+}
+
+document.addEventListener("click", e => {
+  const t = e.target;
+  if (t.dataset.view) {
+    view = t.dataset.view; shown = PAGE;
+    document.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", b === t));
+    $("q").placeholder = view === "inst" ? "Search by name, institution or city…" : "Search by researcher or institution name…";
+    render();
+  } else if (t.dataset.people !== undefined) {
+    togglePeople(Number(t.dataset.people), t);
+  } else if (t.dataset.goto !== undefined) {
+    const r = D.inst[Number(t.dataset.goto)];
+    view = "inst"; shown = PAGE;
+    document.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", b.dataset.view === "inst"));
+    $("q").value = r[0]; $("country").value = ""; $("species").value = "";
+    render();
+  }
+});
+
+let timer;
+$("q").addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(() => { shown = PAGE; render(); }, 150); });
+["country", "species", "sort"].forEach(id => $(id).addEventListener("change", () => { shown = PAGE; render(); }));
+
+fetch(DATA_URL).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+  .then(d => { D = d; prepare(); render(); })
+  .catch(err => { $("results").innerHTML = `<div class="status">Could not load the directory data (${esc(err.message)}).</div>`; });
+</script>
+</body>
+</html>

@@ -1,0 +1,132 @@
+# =====================================================================
+#  Animal Welfare Research Directory: search configuration
+#  Edit this file to change which papers count as "animal welfare".
+#  After editing, delete data/state.json to force a full rebuild.
+# =====================================================================
+
+# Only papers from this year onward are used (keeps the directory current
+# and the API cost down). Set to null to use all years.
+from_year: 2010
+
+# Only these publication types are used.
+work_types: [article, review, book-chapter, preprint]
+
+# ---------------------------------------------------------------------
+# RULE A: core welfare journals. Every paper in these journals is included.
+# IDs were looked up in OpenAlex on 24 Nov 2026.
+# Note: Applied Animal Behaviour Science also publishes pure ethology;
+# remove it from this list if you want only welfare papers from it
+# (its welfare papers will still be caught by rules B-D).
+# ---------------------------------------------------------------------
+core_journals:
+  S144449874: Animal Welfare (UFAW)
+  S78331093: Journal of Applied Animal Welfare Science
+  S179500637: Applied Animal Behaviour Science
+
+# ---------------------------------------------------------------------
+# RULE B: strong welfare phrases, searched in title + abstract.
+# OpenAlex stems words, so "welfare indicator" also finds "indicators".
+# A paper matched here must ALSO mention an animal (see animal_terms
+# and species below) unless the phrase itself contains "animal".
+# Keep each group to about 8 phrases (long queries can fail).
+# ---------------------------------------------------------------------
+strong_phrases:
+  - ["animal welfare", "farm animal welfare", "welfare assessment", "welfare indicator", "welfare quality", "welfare protocol", "animal-based measures", "positive welfare"]
+  - ["five domains", "five freedoms", "affective state", "emotional state", "qualitative behaviour assessment", "qualitative behavior assessment", "judgement bias", "judgment bias"]
+  - ["stereotypic behaviour", "stereotypic behavior", "stereotypies", "abnormal behaviour", "abnormal behavior", "grimace scale", "human-animal relationship", "stockmanship"]
+  - ["humane slaughter", "humane endpoint", "humane endpoints", "welfare at slaughter", "welfare during transport", "on-farm euthanasia", "laboratory animal welfare", "3Rs"]
+
+# ---------------------------------------------------------------------
+# RULE C: the word "welfare" together with an animal word.
+# Each list below is searched as:  welfare AND (term OR term OR ...)
+# Papers are then dropped if they contain an exclusion phrase
+# (economic / social welfare) and none of the strong phrases.
+# ---------------------------------------------------------------------
+welfare_with_animal:
+  - ["pig", "pigs", "swine", "sow", "sows", "piglet", "piglets"]
+  - ["cattle", "cow", "cows", "calf", "calves", "dairy", "beef", "bull"]
+  - ["poultry", "broiler", "broilers", "laying hen", "laying hens", "chicken", "chickens", "turkeys"]
+  - ["sheep", "ewe", "ewes", "lamb", "lambs", "goat", "goats", "camel"]
+  - ["horse", "horses", "equine", "donkey", "donkeys", "dog", "dogs", "canine"]
+  - ["cat", "cats", "feline", "rabbit", "rabbits", "mice", "rat", "rats"]
+  - ["fish", "salmon", "trout", "zebrafish", "aquaculture", "crustacean", "cephalopod", "decapod"]
+  - ["zoo", "zoos", "primate", "primates", "deer", "wildlife", "shelter", "livestock"]
+  - ["animal", "animals", "insect", "insects", "duck", "ducks", "mink", "laboratory animal"]
+
+exclusion_phrases:
+  - social welfare
+  - welfare state
+  - child welfare
+  - welfare economics
+  - economic welfare
+  - consumer welfare
+  - household welfare
+  - welfare gains
+  - welfare loss
+  - welfare effects
+  - welfare analysis
+  - welfare recipients
+  - human welfare
+  - public welfare
+
+# ---------------------------------------------------------------------
+# RULE D: welfare-related problems/methods that don't always use the word
+# "welfare". Matched in title + abstract AND the paper must be classified
+# by OpenAlex under one of the welfare_topics below.
+# ---------------------------------------------------------------------
+welfare_related_terms:
+  - ["tail biting", "feather pecking", "lameness", "environmental enrichment", "enrichment", "pain assessment", "pain relief", "analgesia"]
+  - ["stunning", "slaughter", "castration", "dehorning", "disbudding", "beak trimming", "tail docking", "mutilation"]
+  - ["cognitive bias", "fear test", "novel object", "handling", "transport stress", "heat stress", "space allowance", "stocking density"]
+  - ["play behaviour", "play behavior", "social behaviour", "social behavior", "maternal behaviour", "maternal behavior", "behavioural needs", "behavioral needs"]
+
+welfare_topics:
+  T10838: Animal Behavior and Welfare Studies
+  T14206: Animal Law and Welfare
+  T12281: Animal testing and alternatives
+
+# ---------------------------------------------------------------------
+# Words that count as "mentions an animal" for rule B.
+# The species terms below also count.
+# ---------------------------------------------------------------------
+animal_terms: [animal, animals, livestock, farm, farmed, zoo, wildlife, laboratory, veterinary, pet, pets, companion]
+
+# ---------------------------------------------------------------------
+# Species tags shown as filters on the search page.
+# A paper gets a tag if any term appears in its title, abstract or keywords.
+# Whole-word matching, case-insensitive.
+# ---------------------------------------------------------------------
+species:
+  Pigs: [pig, pigs, swine, sow, sows, piglet, piglets, boar, boars, porcine]
+  Cattle: [cattle, cow, cows, calf, calves, heifer, heifers, bull, bulls, dairy, bovine, beef, steer, steers]
+  Poultry: [poultry, broiler, broilers, hen, hens, chicken, chickens, chick, chicks, turkeys, duck, ducks, quail, laying hen, laying hens, goose, geese]
+  Sheep & goats: [sheep, ewe, ewes, lamb, lambs, ram, rams, ovine, goat, goats, kid goats, caprine]
+  Horses & donkeys: [horse, horses, equine, pony, ponies, donkey, donkeys, mule, mules, foal, foals]
+  Dogs: [dog, dogs, canine, puppy, puppies]
+  Cats: [cat, cats, feline, kitten, kittens]
+  Rabbits: [rabbit, rabbits]
+  Laboratory rodents: [mouse, mice, rat, rats, rodent, rodents, hamster, hamsters, guinea pig, guinea pigs]
+  Fish: [fish, fishes, salmon, trout, zebrafish, tilapia, carp, cod, seabream, sea bass, aquaculture]
+  Invertebrates: [crustacean, crustaceans, decapod, decapods, crab, crabs, lobster, lobsters, shrimp, prawn, prawns, octopus, cephalopod, cephalopods, insect, insects, bee, bees]
+  Primates: [primate, primates, macaque, macaques, monkey, monkeys, chimpanzee, chimpanzees, marmoset, marmosets]
+  Deer: [deer, red deer, fallow deer, roe deer, reindeer]
+  Zoo & wild animals: [zoo, zoos, wildlife, wild animals, aquarium, elephant, elephants, captive]
+
+# A species tag is shown (and used by the filter) only if it covers at least
+# this share of an institution's or researcher's papers (0.05 = 5%).
+species_min_share: 0.05
+
+# ---------------------------------------------------------------------
+# Institution handling
+#   when_parent_present: drop a department/centre if its parent university
+#                        is also listed on the same paper (recommended)
+#   always:              always roll up to the top-level organisation
+#                        (careful: all Max Planck Institutes would become
+#                        "Max Planck Society")
+#   never:               keep exactly what OpenAlex lists
+# ---------------------------------------------------------------------
+subunit_rollup: when_parent_present
+
+# Safety: stop if a query returns more works than this (it usually means
+# the query was not understood and OpenAlex ignored the filter).
+max_results_per_query: 150000
