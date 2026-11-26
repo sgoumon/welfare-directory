@@ -195,7 +195,10 @@ def build_queries(cfg, from_year):
         add("C", ['title_and_abstract.search:("welfare" AND (' + " OR ".join(quote(t) for t in group) + "))"])
 
     topics = "|".join((cfg.get("welfare_topics") or {}).keys())
-    for group in cfg.get("welfare_related_terms") or []:
+    d_groups = list(cfg.get("welfare_related_terms") or [])
+    for terms in (cfg.get("indicators") or {}).values():
+        d_groups += [terms[i:i + 8] for i in range(0, len(terms), 8)]
+    for group in d_groups:
         add("D", ["title_and_abstract.search:(" + " OR ".join(quote(t) for t in group) + ")",
                   "topics.id:" + topics])
     return queries
@@ -207,6 +210,9 @@ class Classifier:
     def __init__(self, cfg):
         species = cfg.get("species") or {}
         self.species = {name: term_regex(terms) for name, terms in species.items()}
+        self.indicators = {name: term_regex(terms) for name, terms in (cfg.get("indicators") or {}).items()}
+        # phrases that must not count for a species, e.g. "guinea pig" for Pigs
+        self.species_not = {name: term_regex(terms) for name, terms in (cfg.get("species_not") or {}).items()}
         all_species_terms = [t for terms in species.values() for t in terms]
         self.animal = term_regex((cfg.get("animal_terms") or []) + all_species_terms)
         self.exclusion = term_regex(cfg.get("exclusion_phrases") or [])
@@ -233,8 +239,19 @@ class Classifier:
     def has_welfare_topic(self, work):
         return any(short(t.get("id")) in self.topics for t in (work.get("topics") or []))
 
+    def tag_indicators(self, text):
+        return [name for name, rx in self.indicators.items() if rx and rx.search(text)]
+
     def tag_species(self, text):
-        return [name for name, rx in self.species.items() if rx and rx.search(text)]
+        tags = []
+        for name, rx in self.species.items():
+            t = text
+            neg = self.species_not.get(name)
+            if neg:
+                t = neg.sub(" ", t)
+            if rx and rx.search(t):
+                tags.append(name)
+        return tags
 
 
 def compact_work(work, clf, kind, insts_seen):
@@ -279,6 +296,7 @@ def compact_work(work, clf, kind, insts_seen):
         "s": short(src.get("id")),
         "sn": src.get("display_name"),
         "sp": clf.tag_species(tag_text),
+        "ind": clf.tag_indicators(tag_text),
         "r": kind,
         "au": authors,
     }
@@ -405,6 +423,8 @@ def aggregate(cfg):
     rollup = cfg.get("subunit_rollup", "when_parent_present")
     species_names = list((cfg.get("species") or {}).keys())
     sp_bit = {n: 1 << i for i, n in enumerate(species_names)}
+    indicator_names = list((cfg.get("indicators") or {}).keys())
+    ind_bit = {n: 1 << i for i, n in enumerate(indicator_names)}
 
     def info(iid):
         d = details.get(iid) or {}
@@ -449,14 +469,17 @@ def aggregate(cfg):
             if y:
                 years.append(y)
             sps = [s for s in (w.get("sp") or []) if s in sp_bit]
+            inds = [s for s in (w.get("ind") or []) if s in ind_bit]
             for aid, name, orcid, inst_ids in w.get("au") or []:
                 if aid in excluded or (orcid and orcid in excluded):
                     continue
                 a = authors.setdefault(aid, {"n": name, "o": orcid, "w": 0, "y0": y or 9999, "y1": 0,
-                                             "ny": 0, "sp": {}, "i": {}})
+                                             "ny": 0, "sp": {}, "ind": {}, "i": {}})
                 a["w"] += 1
                 for s in sps:
                     a["sp"][s] = a["sp"].get(s, 0) + 1
+                for s in inds:
+                    a["ind"][s] = a["ind"].get(s, 0) + 1
                 if y and y >= a["ny"]:
                     a["ny"] = y
                     if name:
@@ -467,25 +490,33 @@ def aggregate(cfg):
                     a["y0"] = min(a["y0"], y)
                     a["y1"] = max(a["y1"], y)
                 for iid in resolve(inst_ids):
-                    inst = insts.setdefault(iid, {"works": set(), "authors": set(), "sp": {}, "y1": 0})
+                    inst = insts.setdefault(iid, {"works": set(), "authors": set(), "sp": {}, "ind": {}, "y1": 0})
                     if w["id"] not in inst["works"]:
                         for s in sps:
                             inst["sp"][s] = inst["sp"].get(s, 0) + 1
+                        for s in inds:
+                            inst["ind"][s] = inst["ind"].get(s, 0) + 1
                     inst["works"].add(w["id"])
                     inst["authors"].add(aid)
                     inst["y1"] = max(inst["y1"], y)
                     prev = a["i"].get(iid, 0)
                     a["i"][iid] = max(prev, y)
 
-    def species_bits(counts, n_papers):
-        """Tag a species only if it makes up >= species_min_share of the papers,
-        so a big university isn't tagged with every species it ever touched."""
-        need = max(1, n_papers * float(cfg.get("species_min_share", 0.05)))
+    def tag_bits(counts, n_papers, bitmap, share_key):
+        """Tag only if it makes up >= the configured share of the papers,
+        so a big university isn't tagged with everything it ever touched."""
+        need = max(1, n_papers * float(cfg.get(share_key, cfg.get("species_min_share", 0.05))))
         bits = 0
         for s, c in counts.items():
             if c >= need:
-                bits |= sp_bit[s]
+                bits |= bitmap[s]
         return bits
+
+    def species_bits(counts, n_papers):
+        return tag_bits(counts, n_papers, sp_bit, "species_min_share")
+
+    def indicator_bits(counts, n_papers):
+        return tag_bits(counts, n_papers, ind_bit, "indicator_min_share")
 
     inst_list = sorted(insts.items(), key=lambda kv: -len(kv[1]["works"]))
     inst_index = {iid: k for k, (iid, _) in enumerate(inst_list)}
@@ -497,22 +528,24 @@ def aggregate(cfg):
         out_inst.append([d["n"] or iid, d["city"], d["c"], d["ror"], d["web"], len(v["works"]),
                          len(v["authors"]), species_bits(v["sp"], len(v["works"])), v["y1"], iid,
                          round(d["lat"], 3) if d["lat"] is not None else None,
-                         round(d["lon"], 3) if d["lon"] is not None else None])
+                         round(d["lon"], 3) if d["lon"] is not None else None,
+                         indicator_bits(v["ind"], len(v["works"]))])
     out_res = []
     for aid, a in sorted(authors.items(), key=lambda kv: -kv[1]["w"]):
         inst_sorted = sorted(a["i"].items(), key=lambda kv: -kv[1])  # most recent first
         out_res.append([a["n"], a["o"], a["w"], a["y0"] if a["y0"] != 9999 else None,
                         a["y1"] or None, [[inst_index[i], yr] for i, yr in inst_sorted if i in inst_index],
-                        species_bits(a["sp"], a["w"]), aid])
+                        species_bits(a["sp"], a["w"]), aid, indicator_bits(a["ind"], a["w"])])
 
     result = {
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "papers": n_works,
         "years": [min(years), max(years)] if years else None,
         "species": species_names,
+        "indicators": indicator_names,
         "countries": sorted(c for c in countries if c),
-        "inst_fields": ["name", "city", "country", "ror", "web", "papers", "researchers", "species_bits", "last_year", "openalex", "lat", "lon"],
-        "res_fields": ["name", "orcid", "papers", "first_year", "last_year", "institutions [index, last year there]", "species_bits", "openalex"],
+        "inst_fields": ["name", "city", "country", "ror", "web", "papers", "researchers", "species_bits", "last_year", "openalex", "lat", "lon", "indicator_bits"],
+        "res_fields": ["name", "orcid", "papers", "first_year", "last_year", "institutions [index, last year there]", "species_bits", "openalex", "indicator_bits"],
         "inst": out_inst,
         "res": out_res,
     }
@@ -581,7 +614,7 @@ def main():
         if state["rules_hash"] != rules_hash(cfg) or lowered:
             print("The search rules in config.yaml have changed: starting a fresh build")
             fresh = True
-    if state and state.get("complete"):
+    if not fresh and state and state.get("complete"):
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(state["completed_at"])).days
         if age < REFRESH_DAYS:
             if state.get("aggregated_year") != cfg.get("from_year"):
