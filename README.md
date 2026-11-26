@@ -13,11 +13,14 @@ OpenAlex API ──► scripts/build_directory.py ──► docs/directory.json 
                  exclude.txt (removals)
 ```
 
-1. **Collect papers.** Four rules, all editable in `config.yaml`:
-   - **A.** every paper in core welfare journals (*Animal Welfare*, *JAAWS*, *Applied Animal Behaviour Science*)
-   - **B.** strong welfare phrases in title/abstract ("animal welfare", "welfare assessment", "grimace scale"…), and the paper must mention an animal
-   - **C.** "welfare" + an animal word in title/abstract, minus papers about economic/social welfare
-   - **D.** welfare-related terms (tail biting, lameness, enrichment…) **and** classified by OpenAlex under a welfare topic
+1. **Collect papers** (2020 onwards). A paper is included if it meets **any one** of these rules, all editable in `config.yaml`,
+   matched in the title and abstract, in any journal:
+   - **A.** core journals (currently switched off: no journal is included automatically)
+   - **B.** a strong welfare phrase ("animal welfare", "welfare assessment", "grimace scale"…) and a mention of an animal
+   - **C.** "welfare" + an animal word (farmed, companion, laboratory, zoo and wild animals, plus class words like *mammal* or *bird*),
+     minus papers about economic/social welfare
+   - **D.** a welfare indicator or procedure (behavioural, physiological, health, cognitive/affective; castration, stunning…)
+     **and** classified by OpenAlex under a welfare topic
 2. **Aggregate.** Authors' affiliations on those papers become institutions; departments are merged into their university when both are listed.
 3. **Publish.** A small JSON file feeds a search page with filters for country and species.
 

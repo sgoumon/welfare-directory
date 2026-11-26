@@ -13,16 +13,14 @@ from_year: 2020
 work_types: [article, review, book-chapter, preprint]
 
 # ---------------------------------------------------------------------
-# RULE A: core welfare journals. Every paper in these journals is included.
-# IDs were looked up in OpenAlex on 24 Nov 2026.
-# Note: Applied Animal Behaviour Science also publishes pure ethology;
-# remove it from this list if you want only welfare papers from it
-# (its welfare papers will still be caught by rules B-D).
+# RULE A: core journals whose papers are ALL included, regardless of content.
+# Switched off (empty): papers are selected only by their title/abstract
+# (rules B-D), in any journal. To switch on, list OpenAlex source IDs, e.g.
+#   S144449874: Animal Welfare (UFAW)
+#   S78331093: Journal of Applied Animal Welfare Science
+#   S179500637: Applied Animal Behaviour Science
 # ---------------------------------------------------------------------
-core_journals:
-  S144449874: Animal Welfare (UFAW)
-  S78331093: Journal of Applied Animal Welfare Science
-  S179500637: Applied Animal Behaviour Science
+core_journals: {}
 
 # ---------------------------------------------------------------------
 # RULE B: strong welfare phrases, searched in title + abstract.
@@ -44,15 +42,31 @@ strong_phrases:
 # (economic / social welfare) and none of the strong phrases.
 # ---------------------------------------------------------------------
 welfare_with_animal:
-  - ["pig", "pigs", "swine", "sow", "sows", "piglet", "piglets"]
+  # farmed animals
+  - ["pig", "pigs", "swine", "sow", "sows", "piglet", "piglets", "boar"]
   - ["cattle", "cow", "cows", "calf", "calves", "dairy", "beef", "bull"]
+  - ["buffalo", "buffaloes", "yak", "yaks", "camel", "camels", "alpaca", "llama"]
   - ["poultry", "broiler", "broilers", "laying hen", "laying hens", "chicken", "chickens", "turkeys"]
-  - ["sheep", "ewe", "ewes", "lamb", "lambs", "goat", "goats", "camel"]
-  - ["horse", "horses", "equine", "donkey", "donkeys", "dog", "dogs", "canine"]
-  - ["cat", "cats", "feline", "rabbit", "rabbits", "mice", "rat", "rats"]
-  - ["fish", "salmon", "trout", "zebrafish", "aquaculture", "crustacean", "cephalopod", "decapod"]
-  - ["zoo", "zoos", "primate", "primates", "deer", "wildlife", "shelter", "livestock"]
-  - ["animal", "animals", "insect", "insects", "duck", "ducks", "mink", "laboratory animal"]
+  - ["duck", "ducks", "goose", "geese", "quail", "ostrich", "pheasant", "gamebirds"]
+  - ["sheep", "ewe", "ewes", "lamb", "lambs", "goat", "goats", "reindeer"]
+  - ["fish", "salmon", "trout", "tilapia", "carp", "catfish", "seabream", "aquaculture"]
+  - ["shrimp", "prawn", "prawns", "crab", "lobster", "crustacean", "cephalopod", "decapod"]
+  - ["insect", "insects", "black soldier fly", "mealworm", "cricket", "crickets", "honey bee", "bees"]
+  - ["mink", "fur animal", "fur farming", "fox", "foxes", "raccoon dog", "deer", "farmed animal"]
+  # companion animals
+  - ["dog", "dogs", "canine", "puppy", "puppies", "cat", "cats", "feline"]
+  - ["horse", "horses", "equine", "pony", "ponies", "donkey", "donkeys", "mule"]
+  - ["rabbit", "rabbits", "guinea pig", "guinea pigs", "hamster", "ferret", "ferrets", "chinchilla"]
+  - ["parrot", "parrots", "pet bird", "pet birds", "budgerigar", "reptile", "reptiles", "ornamental fish"]
+  - ["pet", "pets", "companion animal", "companion animals", "shelter", "kennel", "cattery", "rehoming"]
+  # laboratory, zoo and wild animals
+  - ["mice", "mouse", "rat", "rats", "rodent", "rodents", "zebrafish", "laboratory animal"]
+  - ["zoo", "zoos", "aquarium", "captive", "captivity", "sanctuary", "wildlife", "wild animals"]
+  - ["primate", "primates", "great apes", "elephant", "elephants", "rhinoceros", "rhino", "rhinos"]
+  - ["cetacean", "cetaceans", "dolphin", "dolphins", "whale", "marine mammal", "giraffe", "big cats"]
+  # broad class words (catch species not named above)
+  - ["animal", "animals", "livestock", "mammal", "mammals", "bird", "birds", "amphibian"]
+  - ["amphibians", "vertebrate", "vertebrates", "invertebrate", "invertebrates", "ungulate", "ungulates", "farm animal"]
 
 exclusion_phrases:
   - social welfare
@@ -69,17 +83,28 @@ exclusion_phrases:
   - welfare recipients
   - human welfare
   - public welfare
+  - homeless
+  - homelessness
 
 # ---------------------------------------------------------------------
-# RULE D: welfare-related problems/methods that don't always use the word
-# "welfare". Matched in title + abstract AND the paper must be classified
-# by OpenAlex under one of the welfare_topics below.
+# RULE D: welfare indicators and procedures that papers often study without
+# using the word "welfare". A term must appear in title + abstract AND the
+# paper must be classified by OpenAlex under one of the welfare_topics below
+# (these terms are too generic on their own, e.g. most cortisol papers are
+# not welfare papers). The same lists also give every included paper its
+# research-field tags (Behavioural, Physiological, ...), shown and filterable
+# on the search page. Terms are sent to OpenAlex in groups of 8 automatically.
 # ---------------------------------------------------------------------
-welfare_related_terms:
-  - ["tail biting", "feather pecking", "lameness", "environmental enrichment", "enrichment", "pain assessment", "pain relief", "analgesia"]
-  - ["stunning", "slaughter", "castration", "dehorning", "disbudding", "beak trimming", "tail docking", "mutilation"]
-  - ["cognitive bias", "fear test", "novel object", "handling", "transport stress", "heat stress", "space allowance", "stocking density"]
-  - ["play behaviour", "play behavior", "social behaviour", "social behavior", "maternal behaviour", "maternal behavior", "behavioural needs", "behavioral needs"]
+indicators:
+  Behavioural: ["abnormal behaviour", "abnormal behavior", "aggression", "agonistic behaviour", "agonistic behavior", "affiliative behaviour", "affiliative behavior", "play behaviour", "play behavior", "vocalisation", "vocalization", "vocalisations", "vocalizations", "time budget", "activity budget", "lying behaviour", "lying behavior", "rumination", "feeding behaviour", "feeding behavior", "avoidance distance", "fearfulness", "social behaviour", "social behavior", "maternal behaviour", "maternal behavior", "behavioural needs", "behavioral needs", "tail biting", "feather pecking", "environmental enrichment", "enrichment", "stereotypic behaviour", "stereotypic behavior", "stereotypies"]
+  Physiological: ["cortisol", "corticosterone", "glucocorticoid", "glucocorticoids", "heart rate variability", "HPA axis", "oxytocin", "stress response", "infrared thermography", "acute phase protein", "acute phase proteins", "stress hormones", "physiological stress", "immune function"]
+  Health: ["lameness", "injury", "injuries", "lesions", "mortality", "body condition", "mastitis", "footpad dermatitis", "keel bone", "tail lesions", "skin lesions", "hock burns", "claw lesions", "pain", "pain assessment", "analgesia", "grimace scale"]
+  Cognitive & affective: ["cognitive bias", "judgement bias", "judgment bias", "anticipatory behaviour", "anticipatory behavior", "emotional valence", "positive affect", "negative affect", "preference test", "motivation", "consumer demand", "conditioned place preference", "learned helplessness", "emotional contagion", "affective state", "emotions", "qualitative behaviour assessment", "qualitative behavior assessment"]
+  Procedures & management: ["stunning", "slaughter", "castration", "dehorning", "disbudding", "beak trimming", "tail docking", "mutilation", "transport stress", "heat stress", "space allowance", "stocking density", "handling", "novel object", "fear test", "housing system"]
+
+# An indicator tag (research field) is shown only if it covers at least this
+# share of an institution's or researcher's papers (0.05 = 5%).
+indicator_min_share: 0.05
 
 welfare_topics:
   T10838: Animal Behavior and Welfare Studies
@@ -99,19 +124,32 @@ animal_terms: [animal, animals, livestock, farm, farmed, zoo, wildlife, laborato
 # ---------------------------------------------------------------------
 species:
   Pigs: [pig, pigs, swine, sow, sows, piglet, piglets, boar, boars, porcine]
-  Cattle: [cattle, cow, cows, calf, calves, heifer, heifers, bull, bulls, dairy, bovine, beef, steer, steers]
-  Poultry: [poultry, broiler, broilers, hen, hens, chicken, chickens, chick, chicks, turkeys, duck, ducks, quail, laying hen, laying hens, goose, geese]
+  Cattle & buffalo: [cattle, cow, cows, calf, calves, heifer, heifers, bull, bulls, dairy, bovine, beef, steer, steers, buffalo, buffaloes, yak, yaks]
+  Poultry & farmed birds: [poultry, broiler, broilers, hen, hens, chicken, chickens, chick, chicks, turkeys, duck, ducks, quail, laying hen, laying hens, goose, geese, ostrich, ostriches, pheasant, pheasants, gamebirds]
   Sheep & goats: [sheep, ewe, ewes, lamb, lambs, ram, rams, ovine, goat, goats, kid goats, caprine]
+  Camelids: [camel, camels, dromedary, alpaca, alpacas, llama, llamas]
   Horses & donkeys: [horse, horses, equine, pony, ponies, donkey, donkeys, mule, mules, foal, foals]
   Dogs: [dog, dogs, canine, puppy, puppies]
   Cats: [cat, cats, feline, kitten, kittens]
   Rabbits: [rabbit, rabbits]
-  Laboratory rodents: [mouse, mice, rat, rats, rodent, rodents, hamster, hamsters, guinea pig, guinea pigs]
-  Fish: [fish, fishes, salmon, trout, zebrafish, tilapia, carp, cod, seabream, sea bass, aquaculture]
-  Invertebrates: [crustacean, crustaceans, decapod, decapods, crab, crabs, lobster, lobsters, shrimp, prawn, prawns, octopus, cephalopod, cephalopods, insect, insects, bee, bees]
-  Primates: [primate, primates, macaque, macaques, monkey, monkeys, chimpanzee, chimpanzees, marmoset, marmosets]
+  Small pets: [guinea pig, guinea pigs, hamster, hamsters, ferret, ferrets, chinchilla, chinchillas, gerbil, gerbils]
+  Pet birds: [parrot, parrots, pet bird, pet birds, budgerigar, budgerigars, canary, canaries, psittacine]
+  Reptiles & amphibians: [reptile, reptiles, snake, snakes, lizard, lizards, tortoise, tortoises, turtle, turtles, amphibian, amphibians, frog, frogs]
+  Laboratory rodents: [mouse, mice, rat, rats, rodent, rodents]
+  Fish: [fish, fishes, salmon, trout, zebrafish, tilapia, carp, catfish, cod, seabream, sea bass, aquaculture, ornamental fish]
+  Crustaceans & cephalopods: [crustacean, crustaceans, crayfish, cuttlefish, decapod, decapods, crab, crabs, lobster, lobsters, shrimp, prawn, prawns, octopus, cephalopod, cephalopods]
+  Insects: [insect, insects, black soldier fly, mealworm, mealworms, cricket, crickets, bee, bees, honey bee]
+  Fur animals: [mink, fur animal, fur animals, fur farming, fox, foxes, raccoon dog, raccoon dogs]
+  Primates: [primate, primates, macaque, macaques, monkey, monkeys, chimpanzee, chimpanzees, marmoset, marmosets, great apes, gorilla, gorillas, orangutan, orangutans]
   Deer: [deer, red deer, fallow deer, roe deer, reindeer]
-  Zoo & wild animals: [zoo, zoos, wildlife, wild animals, aquarium, elephant, elephants, captive]
+  Marine mammals: [cetacean, cetaceans, dolphin, dolphins, whale, whales, marine mammal, marine mammals, pinniped, pinnipeds, sea lion, sea lions]
+  Zoo & wild animals: [zoo, zoos, wildlife, wild animals, aquarium, sanctuary, captive wild, elephant, elephants, rhinoceros, rhino, rhinos, giraffe, giraffes, big cats, tiger, tigers, lion, lions]
+
+# Phrases that must NOT trigger a species tag.
+species_not:
+  Pigs: [guinea pig, guinea pigs]
+  Cattle & buffalo: [sea cow, sea cows]
+  Fish: [shellfish, starfish, jellyfish, crayfish, cuttlefish]
 
 # A species tag is shown (and used by the filter) only if it covers at least
 # this share of an institution's or researcher's papers (0.05 = 5%).
