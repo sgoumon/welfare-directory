@@ -55,8 +55,8 @@ This writes `data/sample_check.csv` with 100 random included papers. Mark each `
 If too many `n`, look at the *rule* column to see which rule lets them in, and tighten that part of `config.yaml`.
 To check what is **missed**, search the page for groups you know.
 
-After changing `config.yaml`, start a new full build with *Actions → Run workflow* after deleting `data/state.json`
-(or locally: `python scripts/build_directory.py --restart`).
+After changing the rules in `config.yaml`, the next run notices and starts a fresh build automatically
+(the old directory stays online until the new one is complete). Raising `from_year` needs no rebuild.
 
 ## Corrections and removals
 
@@ -82,6 +82,6 @@ Institution IDs (`I...`) can be excluded the same way. The change takes effect a
   not be reached from the build environment for a full run. Watch the first workflow log for errors.
 - If a query is listed as **SKIPPED** in the log, OpenAlex did not understand it (this happened once in testing with a
   long list of terms). Split that term group in `config.yaml` into two smaller groups.
-- GitHub action versions (`actions/checkout@v4`, `actions/setup-python@v5`) may have newer releases; the listed ones should still work.
+- The workflow uses `actions/checkout@v5` and `actions/setup-python@v6`, which run on Node.js 24.
 
-Data: OpenAlex (CC0). Papers counted from `from_year` in `config.yaml` (default 2010).
+Data: OpenAlex (CC0). Papers counted from `from_year` in `config.yaml` (currently 2020).

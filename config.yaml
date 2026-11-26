@@ -1,12 +1,13 @@
 # =====================================================================
 #  Animal Welfare Research Directory: search configuration
 #  Edit this file to change which papers count as "animal welfare".
-#  After editing, delete data/state.json to force a full rebuild.
+#  After editing, the next run notices changed rules and rebuilds from scratch.
+#  (Raising from_year needs no rebuild: older papers are simply left out.)
 # =====================================================================
 
 # Only papers from this year onward are used (keeps the directory current
-# and the API cost down). Set to null to use all years.
-from_year: 2010
+# and reduces outdated affiliations). Set to null to use all years.
+from_year: 2020
 
 # Only these publication types are used.
 work_types: [article, review, book-chapter, preprint]
