@@ -170,12 +170,12 @@ class OpenAlex:
 
 # --------------------------------------------------------------------- queries
 
-def build_queries(cfg):
+def build_queries(cfg, from_year):
     base = []
     if cfg.get("work_types"):
         base.append("type:" + "|".join(cfg["work_types"]))
-    if cfg.get("from_year"):
-        base.append(f"publication_year:>{int(cfg['from_year']) - 1}")
+    if from_year:
+        base.append(f"publication_year:>{int(from_year) - 1}")
 
     queries = []
 
@@ -297,7 +297,9 @@ def fetch(cfg, api, state, max_pages=None):
     max_results = int(cfg.get("max_results_per_query") or 150000)
     pages_this_run = 0
 
-    for q in build_queries(cfg):
+    # a build keeps fetching with the year it started with; a later from_year
+    # is applied when the directory is assembled (see aggregate)
+    for q in build_queries(cfg, state.get("from_year", cfg.get("from_year"))):
         qs = state["queries"].setdefault(q["id"], {"cursor": "*", "done": False, "pages": 0, "kind": q["kind"], "filter": q["filter"]})
         if qs["done"] or qs.get("failed"):
             continue
@@ -433,14 +435,17 @@ def aggregate(cfg):
             out.append(i)
         return out
 
+    min_year = int(cfg.get("from_year") or 0)
     insts, authors = {}, {}
     n_works = 0
     years = []
     with gzip.open(WORKS, "rt", encoding="utf-8") as f:
         for line in f:
             w = json.loads(line)
-            n_works += 1
             y = w.get("y") or 0
+            if min_year and y and y < min_year:
+                continue  # older than from_year in config.yaml
+            n_works += 1
             if y:
                 years.append(y)
             sps = [s for s in (w.get("sp") or []) if s in sp_bit]
@@ -536,8 +541,16 @@ def write_sample(n):
 
 # --------------------------------------------------------------------- main
 
-def new_state():
-    return {"started": now_iso(), "complete": False, "queries": {}}
+def rules_hash(cfg):
+    """Fingerprint of the search rules. from_year is left out on purpose:
+    raising it only filters papers already collected, so no refetch is needed."""
+    rules = {k: v for k, v in cfg.items() if k != "from_year"}
+    return hashlib.sha1(json.dumps(rules, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def new_state(cfg):
+    return {"started": now_iso(), "complete": False, "queries": {},
+            "from_year": cfg.get("from_year"), "rules_hash": rules_hash(cfg)}
 
 
 def main():
@@ -561,9 +574,22 @@ def main():
 
     state = load_json(STATE, None)
     fresh = args.restart or state is None
+    if state is not None:
+        state.setdefault("rules_hash", rules_hash(cfg))  # builds started before this check existed
+        state.setdefault("from_year", 2010)
+        lowered = cfg.get("from_year") and state["from_year"] and int(cfg["from_year"]) < int(state["from_year"])
+        if state["rules_hash"] != rules_hash(cfg) or lowered:
+            print("The search rules in config.yaml have changed: starting a fresh build")
+            fresh = True
     if state and state.get("complete"):
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(state["completed_at"])).days
         if age < REFRESH_DAYS:
+            if state.get("aggregated_year") != cfg.get("from_year"):
+                print("from_year changed: rebuilding the directory from papers already collected")
+                aggregate(cfg)
+                state["aggregated_year"] = cfg.get("from_year")
+                save_json(STATE, state)
+                return 0
             print(f"Directory is up to date (built {age} days ago). Nothing to do.")
             return 0
         fresh = True
@@ -572,7 +598,7 @@ def main():
         for p in (WORKS, INSTS_SEEN):
             if p.exists():
                 p.unlink()
-        state = new_state()
+        state = new_state(cfg)
         save_json(STATE, state)
 
     key = os.environ.get("OPENALEX_API_KEY")
@@ -592,6 +618,7 @@ def main():
         return 0
 
     aggregate(cfg)
+    state["aggregated_year"] = cfg.get("from_year")
     state["complete"] = True
     state["completed_at"] = now_iso()
     save_json(STATE, state)
