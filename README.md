@@ -63,9 +63,20 @@ After changing the rules in `config.yaml`, the next run notices and starts a fre
 
 ## Corrections and removals
 
-Add the person's OpenAlex author ID (e.g. `A5061303796`, shown in their OpenAlex profile link) or ORCID to `exclude.txt`.
-Institution IDs (`I...`) can be excluded the same way. The change takes effect at the next build, or immediately with
-`python scripts/build_directory.py --aggregate-only` followed by a commit of `docs/directory.json`.
+Edit `exclude.txt`:
+- one ID per line removes it everywhere: an author (`A...`), an ORCID, an institution (`I...`) or a paper (`W...`);
+- `A... W...` on one line detaches only that author from that paper. Use this when OpenAlex attached someone
+  else's paper to a profile (name mix-ups).
+
+The change takes effect at the next build, or immediately with `python scripts/build_directory.py --aggregate-only`.
+Researchers can also fix their own OpenAlex profile by claiming it at openalex.org; the fix then flows into the next build.
+
+## Which researchers are listed
+
+`config.yaml` sets `researcher_min_papers` (default 2), `researcher_min_focus` (default 25% of all their outputs since
+`from_year` must be welfare papers) and `researcher_focus_exempt_papers` (default 5: anyone with this many welfare papers
+is always listed, which also protects mixed-up profiles). Institutions always count all papers. Changing these
+does not need a new fetch.
 
 ## Files
 

@@ -1,5 +1,14 @@
-# Removal requests and corrections.
-# One ID per line: an OpenAlex author ID (A123...), an ORCID (0000-0000-0000-0000),
-# or an OpenAlex institution ID (I123...). Text after # is ignored.
-# After editing, the next update will remove these entries
-# (or run: python scripts/build_directory.py --aggregate-only).
+# Removal requests and corrections. Text after # is ignored.
+#
+# One ID per line removes it everywhere:
+#   A5012345678            an OpenAlex author (researcher)
+#   0000-0002-1825-0097    an ORCID
+#   I123456789             an OpenAlex institution
+#   W4404012345            a single paper
+#
+# An author and a paper on the same line detach only that author from that
+# paper, e.g. when OpenAlex attached someone else's paper to a profile:
+#   A5012345678 W4404012345
+#
+# Changes apply at the next build, or right away with:
+#   python scripts/build_directory.py --aggregate-only

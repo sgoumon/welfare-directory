@@ -145,6 +145,22 @@ species:
   Marine mammals: [cetacean, cetaceans, dolphin, dolphins, whale, whales, marine mammal, marine mammals, pinniped, pinnipeds, sea lion, sea lions]
   Zoo & wild animals: [zoo, zoos, wildlife, wild animals, aquarium, sanctuary, captive wild, elephant, elephants, rhinoceros, rhino, rhinos, giraffe, giraffes, big cats, tiger, tigers, lion, lions]
 
+# Which researchers are listed (institutions always count all papers):
+#   researcher_min_papers: at least this many matching papers since from_year
+#   researcher_min_focus:  matching papers must be at least this share of ALL
+#                          their publications since from_year (0.25 = 25%).
+#                          Set to 0 to switch off. OpenAlex totals include every
+#                          output type (datasets, corrections...), so the true
+#                          share is usually a little higher than calculated.
+# Changing these does not need a new fetch: the directory is re-assembled.
+#   researcher_focus_exempt_papers: researchers with at least this many matching
+#                          papers are always listed, whatever their share. This
+#                          protects people whose OpenAlex profile is mixed up
+#                          with someone else's (which inflates their total).
+researcher_min_papers: 2
+researcher_min_focus: 0.25
+researcher_focus_exempt_papers: 5
+
 # Phrases that must NOT trigger a species tag.
 species_not:
   Pigs: [guinea pig, guinea pigs]
