@@ -196,12 +196,13 @@ def build_queries(cfg, from_year):
         add("C", ['title_and_abstract.search:("welfare" AND (' + " OR ".join(quote(t) for t in group) + "))"])
 
     topics = "|".join((cfg.get("welfare_topics") or {}).keys())
+    primary = cfg.get("topic_match", "primary") == "primary"
     d_groups = list(cfg.get("welfare_related_terms") or [])
     for terms in (cfg.get("indicators") or {}).values():
         d_groups += [terms[i:i + 8] for i in range(0, len(terms), 8)]
     for group in d_groups:
         add("D", ["title_and_abstract.search:(" + " OR ".join(quote(t) for t in group) + ")",
-                  "topics.id:" + topics])
+                  ("primary_topic.id:" if primary else "topics.id:") + topics])
     return queries
 
 
@@ -221,6 +222,7 @@ class Classifier:
         self.strong = term_regex(strong)
         self.core = set((cfg.get("core_journals") or {}).keys())
         self.topics = set((cfg.get("welfare_topics") or {}).keys())
+        self.primary_only = cfg.get("topic_match", "primary") == "primary"
 
     def include(self, kind, text, work):
         """The API already guaranteed the query's own search terms matched;
@@ -238,7 +240,10 @@ class Classifier:
         return False
 
     def has_welfare_topic(self, work):
-        return any(short(t.get("id")) in self.topics for t in (work.get("topics") or []))
+        topics = work.get("topics") or []
+        if self.primary_only:
+            topics = topics[:1]  # OpenAlex lists the main (primary) topic first
+        return any(short(t.get("id")) in self.topics for t in topics)
 
     def tag_indicators(self, text):
         return [name for name, rx in self.indicators.items() if rx and rx.search(text)]
@@ -712,7 +717,7 @@ def write_sample(n):
 # them requires a fresh build. Everything else is a display setting, applied
 # by re-assembling the directory from papers already collected.
 FETCH_KEYS = ["work_types", "core_journals", "strong_phrases", "welfare_with_animal", "exclusion_phrases",
-              "welfare_related_terms", "indicators", "welfare_topics", "animal_terms", "species",
+              "welfare_related_terms", "indicators", "welfare_topics", "topic_match", "animal_terms", "species",
               "species_not", "max_results_per_query"]
 DISPLAY_KEYS = ["from_year", "species_min_share", "indicator_min_share", "subunit_rollup",
                 "researcher_min_papers", "researcher_min_focus", "researcher_focus_exempt_papers",
