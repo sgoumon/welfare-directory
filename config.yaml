@@ -106,10 +106,17 @@ indicators:
 # share of an institution's or researcher's papers (0.05 = 5%).
 indicator_min_share: 0.05
 
+# Topics (assigned by OpenAlex) that count as welfare for rule D.
+# "Animal testing and alternatives" (T12281) was removed: it is mostly about
+# alternative test methods in toxicology. Lab animal welfare papers are still
+# found by rules B ("laboratory animal welfare", "3Rs", ...) and C.
 welfare_topics:
   T10838: Animal Behavior and Welfare Studies
   T14206: Animal Law and Welfare
-  T12281: Animal testing and alternatives
+
+# primary = the welfare topic must be the paper's MAIN topic (recommended);
+# any     = it may be any of the (up to 3) topics OpenAlex gives a paper.
+topic_match: primary
 
 # ---------------------------------------------------------------------
 # Words that count as "mentions an animal" for rule B.
