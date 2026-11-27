@@ -496,6 +496,12 @@ def load_exclusions():
 
 
 def aggregate(cfg):
+    clf = Classifier(cfg)
+    # A paper's species: those named in its title; only if the title names none,
+    # those found anywhere in title/abstract/keywords. This keeps species that a
+    # paper merely mentions for comparison (common in reviews) from tagging it.
+    title_first = bool(cfg.get("species_from_title_first", True))
+    this_year = datetime.now(timezone.utc).year
     insts_seen = load_json(INSTS_SEEN, {})
     details = load_json(INST_DETAILS, {})
     excluded, excluded_pairs = load_exclusions()
@@ -552,8 +558,12 @@ def aggregate(cfg):
                 continue  # paper removed via exclude.txt
             n_works += 1
             if y:
-                years.append(y)
-            sps = [s for s in (w.get("sp") or []) if s in sp_bit]
+                years.append(min(y, this_year))  # online-first papers can carry next year's date
+            if title_first:
+                from_title = clf.tag_species((w.get("t") or "").lower())
+                sps = from_title or [s for s in (w.get("sp") or []) if s in sp_bit]
+            else:
+                sps = [s for s in (w.get("sp") or []) if s in sp_bit]
             inds = [s for s in (w.get("ind") or []) if s in ind_bit]
             seen = set()
             for aid, name, orcid, inst_ids in w.get("au") or []:
@@ -636,6 +646,10 @@ def aggregate(cfg):
     for v in insts.values():
         v["listed"] = len(v["authors"] & kept)
 
+    if cfg.get("hide_empty_institutions", True):
+        hidden = sum(1 for v in insts.values() if not v["listed"])
+        insts = {k: v for k, v in insts.items() if v["listed"]}
+        print(f"Institutions without listed researchers hidden: {hidden}")
     inst_list = sorted(insts.items(), key=lambda kv: -len(kv[1]["works"]))
     inst_index = {iid: k for k, (iid, _) in enumerate(inst_list)}
     out_inst = []
@@ -701,7 +715,8 @@ FETCH_KEYS = ["work_types", "core_journals", "strong_phrases", "welfare_with_ani
               "welfare_related_terms", "indicators", "welfare_topics", "animal_terms", "species",
               "species_not", "max_results_per_query"]
 DISPLAY_KEYS = ["from_year", "species_min_share", "indicator_min_share", "subunit_rollup",
-                "researcher_min_papers", "researcher_min_focus", "researcher_focus_exempt_papers"]
+                "researcher_min_papers", "researcher_min_focus", "researcher_focus_exempt_papers",
+                "species_from_title_first", "hide_empty_institutions"]
 NEW_DISPLAY_KEYS = ["researcher_min_papers", "researcher_min_focus", "researcher_focus_exempt_papers"]  # added 27 Nov 2026
 
 
