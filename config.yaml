@@ -161,6 +161,15 @@ researcher_min_papers: 2
 researcher_min_focus: 0.25
 researcher_focus_exempt_papers: 5
 
+# Species of a paper: true = the species named in its title (falling back to
+# the abstract only when the title names none). Avoids tagging papers with
+# species they only mention for comparison, e.g. rodent studies cited in a pig review.
+species_from_title_first: true
+
+# Hide institutions where none of the authors passes the researcher filters
+# below (their papers came only from occasional co-authors).
+hide_empty_institutions: true
+
 # Phrases that must NOT trigger a species tag.
 species_not:
   Pigs: [guinea pig, guinea pigs]
