@@ -43,6 +43,7 @@ STATE = DATA / "state.json"
 WORKS = DATA / "works.jsonl.gz"
 INSTS_SEEN = DATA / "institutions_seen.json"
 INST_DETAILS = DATA / "institution_details.json"
+AUTHOR_STATS = DATA / "author_stats.json"
 OUTPUT = ROOT / "docs" / "directory.json"
 
 DEFAULT_BASE = "https://api.openalex.org"
@@ -404,22 +405,104 @@ def fetch_institution_details(api, insts_seen):
     return details
 
 
+# --------------------------------------------------------------------- author stats (welfare focus)
+
+def orcid_aliases(cfg):
+    """OpenAlex sometimes splits one person into several profiles. Profiles
+    that carry the same ORCID on our papers are merged: every profile ID is
+    mapped to the one with the most matching papers."""
+    min_year = int(cfg.get("from_year") or 0)
+    per_orcid = {}  # orcid -> {author id: papers}
+    with gzip.open(WORKS, "rt", encoding="utf-8") as f:
+        for line in f:
+            w = json.loads(line)
+            y = w.get("y") or 0
+            if min_year and y and y < min_year:
+                continue
+            for au in w.get("au") or []:
+                aid, orcid = au[0], au[2]
+                if orcid:
+                    d = per_orcid.setdefault(orcid, {})
+                    d[aid] = d.get(aid, 0) + 1
+    alias = {}
+    for d in per_orcid.values():
+        if len(d) > 1:
+            main = max(d, key=lambda a: (d[a], a))
+            for a in d:
+                if a != main:
+                    alias[a] = main
+    return alias
+
+
+def count_author_papers(cfg):
+    """Matching papers per author since from_year (before any filtering)."""
+    min_year = int(cfg.get("from_year") or 0)
+    counts = {}
+    with gzip.open(WORKS, "rt", encoding="utf-8") as f:
+        for line in f:
+            w = json.loads(line)
+            y = w.get("y") or 0
+            if min_year and y and y < min_year:
+                continue
+            for au in w.get("au") or []:
+                counts[au[0]] = counts.get(au[0], 0) + 1
+    alias = orcid_aliases(cfg)
+    merged = {}
+    for a, c in counts.items():
+        m = alias.get(a, a)
+        merged[m] = merged.get(m, 0) + c
+    # a profile is "needed" if its merged person passes the minimum
+    return {a: merged[alias.get(a, a)] for a in counts}
+
+
+def fetch_author_stats(cfg, api):
+    """Total number of works per year for each candidate researcher, used for
+    the welfare-focus share. Only authors who pass the minimum paper count."""
+    if not cfg.get("researcher_min_focus"):
+        return
+    stats = load_json(AUTHOR_STATS, {})
+    min_papers = int(cfg.get("researcher_min_papers") or 1)
+    need = sorted(a for a, c in count_author_papers(cfg).items() if c >= min_papers and a not in stats)
+    print(f"Researcher publication totals: {len(need)} to fetch", flush=True)
+    for i in range(0, len(need), 50):
+        chunk = need[i:i + 50]
+        data = api.get("/authors", {"filter": "openalex_id:" + "|".join(chunk), "per-page": 50,
+                                    "select": "id,counts_by_year"})
+        for r in data.get("results") or []:
+            stats[short(r["id"])] = {str(c["year"]): c.get("works_count", 0) for c in (r.get("counts_by_year") or [])}
+        for a in chunk:
+            stats.setdefault(a, None)  # looked up, nothing returned
+        if (i // 50) % 20 == 0:
+            save_json(AUTHOR_STATS, stats)
+    save_json(AUTHOR_STATS, stats)
+
+
 # --------------------------------------------------------------------- aggregate
 
 def load_exclusions():
-    ids = set()
+    """Single IDs (author A..., ORCID, institution I..., paper W...) are removed
+    entirely. A line 'A123 W456' detaches only that author from that paper
+    (for papers OpenAlex wrongly attributed to someone)."""
+    ids, pairs = set(), set()
     if EXCLUDE.exists():
         for line in EXCLUDE.read_text(encoding="utf-8").splitlines():
-            line = line.split("#", 1)[0].strip()
-            if line:
-                ids.add(line.rsplit("/", 1)[-1])
-    return ids
+            parts = [p.rsplit("/", 1)[-1] for p in line.split("#", 1)[0].split()]
+            if len(parts) == 1:
+                ids.add(parts[0])
+            elif len(parts) == 2:
+                a, w = sorted(parts)  # 'A...' sorts before 'W...'
+                pairs.add((a, w))
+    return ids, pairs
 
 
 def aggregate(cfg):
     insts_seen = load_json(INSTS_SEEN, {})
     details = load_json(INST_DETAILS, {})
-    excluded = load_exclusions()
+    excluded, excluded_pairs = load_exclusions()
+    alias = orcid_aliases(cfg)  # merge split profiles that share an ORCID
+    members = {}
+    if alias:
+        print(f"Merged {len(alias)} duplicate researcher profiles sharing an ORCID")
     rollup = cfg.get("subunit_rollup", "when_parent_present")
     species_names = list((cfg.get("species") or {}).keys())
     sp_bit = {n: 1 << i for i, n in enumerate(species_names)}
@@ -465,14 +548,22 @@ def aggregate(cfg):
             y = w.get("y") or 0
             if min_year and y and y < min_year:
                 continue  # older than from_year in config.yaml
+            if w["id"] in excluded:
+                continue  # paper removed via exclude.txt
             n_works += 1
             if y:
                 years.append(y)
             sps = [s for s in (w.get("sp") or []) if s in sp_bit]
             inds = [s for s in (w.get("ind") or []) if s in ind_bit]
+            seen = set()
             for aid, name, orcid, inst_ids in w.get("au") or []:
-                if aid in excluded or (orcid and orcid in excluded):
+                orig = aid
+                aid = alias.get(aid, aid)
+                members.setdefault(aid, set()).add(orig)
+                if aid in excluded or orig in excluded or (orcid and orcid in excluded) \
+                        or (orig, w["id"]) in excluded_pairs or aid in seen:
                     continue
+                seen.add(aid)
                 a = authors.setdefault(aid, {"n": name, "o": orcid, "w": 0, "y0": y or 9999, "y1": 0,
                                              "ny": 0, "sp": {}, "ind": {}, "i": {}})
                 a["w"] += 1
@@ -518,6 +609,33 @@ def aggregate(cfg):
     def indicator_bits(counts, n_papers):
         return tag_bits(counts, n_papers, ind_bit, "indicator_min_share")
 
+    # ---- which researchers are listed
+    min_papers = int(cfg.get("researcher_min_papers") or 1)
+    min_focus = float(cfg.get("researcher_min_focus") or 0)
+    stats = load_json(AUTHOR_STATS, {}) if min_focus else {}
+    min_year_f = int(cfg.get("from_year") or 0)
+
+    exempt = int(cfg.get("researcher_focus_exempt_papers") or 0)
+
+    def keep(aid, a):
+        if a["w"] < min_papers:
+            return False
+        if exempt and a["w"] >= exempt:
+            return True  # clearly active in welfare; also protects mixed-up profiles
+        if min_focus:
+            sts = [stats.get(m) for m in members.get(aid, {aid})]
+            if sts and all(sts):  # unknown totals -> keep (benefit of the doubt)
+                total = sum(n for st in sts for y, n in st.items() if int(y) >= min_year_f)
+                if total > 0 and a["w"] / total < min_focus:
+                    return False
+        return True
+
+    kept = {aid for aid, a in authors.items() if keep(aid, a)}
+    print(f"Researchers listed: {len(kept)} of {len(authors)} "
+          f"(min {min_papers} papers" + (f", welfare focus >= {min_focus:.0%}" if min_focus else "") + ")")
+    for v in insts.values():
+        v["listed"] = len(v["authors"] & kept)
+
     inst_list = sorted(insts.items(), key=lambda kv: -len(kv[1]["works"]))
     inst_index = {iid: k for k, (iid, _) in enumerate(inst_list)}
     out_inst = []
@@ -526,12 +644,14 @@ def aggregate(cfg):
         d = info(iid)
         countries.add(d["c"])
         out_inst.append([d["n"] or iid, d["city"], d["c"], d["ror"], d["web"], len(v["works"]),
-                         len(v["authors"]), species_bits(v["sp"], len(v["works"])), v["y1"], iid,
+                         v["listed"], species_bits(v["sp"], len(v["works"])), v["y1"], iid,
                          round(d["lat"], 3) if d["lat"] is not None else None,
                          round(d["lon"], 3) if d["lon"] is not None else None,
                          indicator_bits(v["ind"], len(v["works"]))])
     out_res = []
     for aid, a in sorted(authors.items(), key=lambda kv: -kv[1]["w"]):
+        if aid not in kept:
+            continue
         inst_sorted = sorted(a["i"].items(), key=lambda kv: -kv[1])  # most recent first
         out_res.append([a["n"], a["o"], a["w"], a["y0"] if a["y0"] != 9999 else None,
                         a["y1"] or None, [[inst_index[i], yr] for i, yr in inst_sorted if i in inst_index],
@@ -574,16 +694,47 @@ def write_sample(n):
 
 # --------------------------------------------------------------------- main
 
+# Settings that change which papers are collected (or their tags): changing
+# them requires a fresh build. Everything else is a display setting, applied
+# by re-assembling the directory from papers already collected.
+FETCH_KEYS = ["work_types", "core_journals", "strong_phrases", "welfare_with_animal", "exclusion_phrases",
+              "welfare_related_terms", "indicators", "welfare_topics", "animal_terms", "species",
+              "species_not", "max_results_per_query"]
+DISPLAY_KEYS = ["from_year", "species_min_share", "indicator_min_share", "subunit_rollup",
+                "researcher_min_papers", "researcher_min_focus", "researcher_focus_exempt_papers"]
+NEW_DISPLAY_KEYS = ["researcher_min_papers", "researcher_min_focus", "researcher_focus_exempt_papers"]  # added 27 Nov 2026
+
+
+def _hash(obj):
+    return hashlib.sha1(json.dumps(obj, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def fetch_hash(cfg):
+    return _hash({k: cfg.get(k) for k in FETCH_KEYS})
+
+
+def display_hash(cfg):
+    return _hash({k: cfg.get(k) for k in DISPLAY_KEYS})
+
+
 def rules_hash(cfg):
-    """Fingerprint of the search rules. from_year is left out on purpose:
-    raising it only filters papers already collected, so no refetch is needed."""
-    rules = {k: v for k, v in cfg.items() if k != "from_year"}
-    return hashlib.sha1(json.dumps(rules, sort_keys=True).encode()).hexdigest()[:12]
+    """Older fingerprint (all settings except from_year); kept only to
+    recognise builds started before fetch_hash existed."""
+    rules = {k: v for k, v in cfg.items() if k != "from_year" and k not in NEW_DISPLAY_KEYS}
+    return _hash(rules)
 
 
 def new_state(cfg):
     return {"started": now_iso(), "complete": False, "queries": {},
-            "from_year": cfg.get("from_year"), "rules_hash": rules_hash(cfg)}
+            "from_year": cfg.get("from_year"), "fetch_hash": fetch_hash(cfg)}
+
+
+def make_api(args):
+    key = os.environ.get("OPENALEX_API_KEY")
+    if not key and args.base_url == DEFAULT_BASE:
+        print("ERROR: set the OPENALEX_API_KEY environment variable (free key: https://openalex.org/settings/api)")
+        return None
+    return OpenAlex(args.base_url, key, os.environ.get("OPENALEX_MAILTO"))
 
 
 def main():
@@ -608,19 +759,32 @@ def main():
     state = load_json(STATE, None)
     fresh = args.restart or state is None
     if state is not None:
-        state.setdefault("rules_hash", rules_hash(cfg))  # builds started before this check existed
+        if "fetch_hash" not in state:  # build started with an older version of this script
+            old = state.get("rules_hash")
+            if old is None or old == rules_hash(cfg):
+                state["fetch_hash"] = fetch_hash(cfg)
+            else:
+                state["fetch_hash"] = "changed"
         state.setdefault("from_year", 2010)
         lowered = cfg.get("from_year") and state["from_year"] and int(cfg["from_year"]) < int(state["from_year"])
-        if state["rules_hash"] != rules_hash(cfg) or lowered:
+        if state["fetch_hash"] != fetch_hash(cfg) or lowered:
             print("The search rules in config.yaml have changed: starting a fresh build")
             fresh = True
     if not fresh and state and state.get("complete"):
         age = (datetime.now(timezone.utc) - datetime.fromisoformat(state["completed_at"])).days
         if age < REFRESH_DAYS:
-            if state.get("aggregated_year") != cfg.get("from_year"):
-                print("from_year changed: rebuilding the directory from papers already collected")
+            if state.get("display_hash") != display_hash(cfg):
+                print("Display settings changed: rebuilding the directory from papers already collected")
+                api = make_api(args)
+                if api is None:
+                    return 1
+                try:
+                    fetch_author_stats(cfg, api)
+                except BudgetExhausted as e:
+                    print(f"Paused: {e}. The current directory stays online; the next run will continue.")
+                    return 0
                 aggregate(cfg)
-                state["aggregated_year"] = cfg.get("from_year")
+                state["display_hash"] = display_hash(cfg)
                 save_json(STATE, state)
                 return 0
             print(f"Directory is up to date (built {age} days ago). Nothing to do.")
@@ -634,11 +798,9 @@ def main():
         state = new_state(cfg)
         save_json(STATE, state)
 
-    key = os.environ.get("OPENALEX_API_KEY")
-    if not key and args.base_url == DEFAULT_BASE:
-        print("ERROR: set the OPENALEX_API_KEY environment variable (free key: https://openalex.org/settings/api)")
+    api = make_api(args)
+    if api is None:
         return 1
-    api = OpenAlex(args.base_url, key, os.environ.get("OPENALEX_MAILTO"))
 
     try:
         finished = fetch(cfg, api, state, args.max_pages)
@@ -646,12 +808,13 @@ def main():
             print(f"Paused. Approximate API cost this run: ${api.spent:.3f}")
             return 0
         fetch_institution_details(api, load_json(INSTS_SEEN, {}))
+        fetch_author_stats(cfg, api)
     except BudgetExhausted as e:
         print(f"Paused: {e}. Progress saved; the next run will continue. Cost this run: ${api.spent:.3f}")
         return 0
 
     aggregate(cfg)
-    state["aggregated_year"] = cfg.get("from_year")
+    state["display_hash"] = display_hash(cfg)
     state["complete"] = True
     state["completed_at"] = now_iso()
     save_json(STATE, state)
